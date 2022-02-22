@@ -19,21 +19,19 @@ class DotProductAttention(nn.Module):
         self.normalize = nn.LayerNorm(hidden_dim)
         self.query_proj = nn.Linear(hidden_dim, hidden_dim, bias=True) #False?
         self.value_proj = nn.Linear(hidden_dim, hidden_dim, bias=True)
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=True)
 
     def forward(self, query: Tensor, value: Tensor): #-> Tuple[Tensor, Tensor]:
         batch_size, hidden_dim, input_size = query.size(0), query.size(2), value.size(1)
 
         score = torch.bmm(self.query_proj(query), self.value_proj(value).transpose(1, 2))
         attn = F.softmax(score.view(-1, input_size), dim=1).view(batch_size, -1, input_size)
-        context = torch.sum(torch.bmm(attn, value), dim=1,  keepdim=True)
+        context = torch.sum(torch.bmm(attn, self.out_proj(value)), dim=1,  keepdim=True)
 
         return context, attn
 
 class PKSpellHierarchical(nn.Module):
-    """Models that decouples key signature estimation from pitch spelling by adding a second RNN.
-
-    This model reached state of the art performances for pitch spelling.
-    """
+    """Models that adds Hierarchical attention"""
 
     def __init__(
         self,
@@ -81,24 +79,24 @@ class PKSpellHierarchical(nn.Module):
             bidirectional=bidirectional,
             num_layers=rnn_depth,
         )
-        self.hier_hidden = 32
+        self.hier_hidden = 64
         self.hier_rnn = rnn_cell(
-            input_size=input_dim,
+            input_size=hidden_dim,#input_dim
             hidden_size=self.hier_hidden//2,
             bidirectional=True,
             num_layers=1,
         )
 
-        self.hier_rnn2 = rnn_cell(
-            input_size=self.hier_hidden,
-            hidden_size=self.hier_hidden//2,
-            bidirectional=True,
-            num_layers=1,
-            batch_first=True
-        )
+        #self.hier_rnn2 = rnn_cell(
+        #    input_size=self.hier_hidden,
+        #    hidden_size=self.hier_hidden//2,
+        #    bidirectional=True,
+        #    num_layers=1,
+        #    batch_first=True
+        #)
 
         self.att_layer1 = DotProductAttention(self.hier_hidden)
-        self.att_layer2 = DotProductAttention(self.hier_hidden)
+        #self.att_layer2 = DotProductAttention(self.hier_hidden)
 
         if dropout is not None and dropout > 0:
             self.dropout = nn.Dropout(p=dropout)
@@ -110,8 +108,11 @@ class PKSpellHierarchical(nn.Module):
             self.dropout2 = None
 
         # Output layers.
+        #self.top_layer_pitch = nn.Linear(hidden_dim, self.n_out_pitch)
         self.top_layer_pitch = nn.Linear(hidden_dim+self.hier_hidden, self.n_out_pitch)
-        self.top_layer_ks = nn.Linear(hidden_dim2+self.hier_hidden, self.n_out_ks)
+        self.top_layer_ks = nn.Linear(self.hier_hidden, self.n_out_ks)
+        #self.top_layer_ks = nn.Linear(self.hidden_dim2, self.n_out_ks)
+        #self.top_layer_ks = nn.Linear(hidden_dim2+self.hier_hidden, self.n_out_ks)
 
         # Loss function that we will use during training.
         self.loss_pitch = nn.CrossEntropyLoss(
@@ -121,92 +122,74 @@ class PKSpellHierarchical(nn.Module):
         self.mode = mode
 
     def compute_outputs(self, sentences, sentences_len, eoM):
-
         #print("s",sentences.shape)
-        #print("sl",sentences_len.shape)
-        #print("eoM",eoM.shape,torch.transpose(eoM,0,1).shape)
-        #print(sentences_len)#
-        #print(eoM)
-        #nz = torch.nonzero(torch.transpose(eoM,0,1), as_tuple=True)
-        #print("nz",np.array(nz).shape,torch.transpose(eoM,0,1).nonzero())
-        #print(nz)
-
-        #iterate through batch to get hierarchical representation
-
-        hier_out = torch.empty((len(sentences_len), self.hier_hidden), device='cuda')
-        for i, s, eom, l in zip(range(len(sentences_len)), torch.transpose(sentences,0,1),torch.transpose(eoM,0,1),sentences_len):
-            nz = torch.nonzero(eom).squeeze()
-            #print("i",i)
-            #print("nz",nz.shape)
-            #print(len(nz),nz)
-            #print("s",s.shape)
-            #print("l",l)
-            sentences_split = torch.tensor_split(s[:l.int()], nz.clone().cpu())
-            #print(len(sentences_split))
-            if nz[0]==0:
-                lengths = torch.diff(nz.cuda(),append=torch.tensor([l]).cuda())
-            else:
-                #print(nz.device,torch.tensor([0]).cuda().device,torch.tensor([l]).cuda().device)
-                lengths = torch.diff(nz.cuda(),prepend=torch.tensor([0]).cuda(),append=torch.tensor([l]).cuda())
-            #print(len(lengths),lengths)
-            #print(np.array(sentences_split).shape)
-            sentences_split_pad = nn.utils.rnn.pad_sequence(sentences_split,batch_first=False)
-            packed = nn.utils.rnn.pack_padded_sequence(sentences_split_pad, lengths.cpu(),enforce_sorted=False)
-
-            rnn_o, _ = self.hier_rnn(packed)
-
-            rnn_o, _ = nn.utils.rnn.pad_packed_sequence(rnn_o)
-
-
-            #print("rnn_o",rnn_o.shape)
-            context, _ = self.att_layer1(rnn_o, rnn_o)
-            #print("context",context.shape)
-
-            rnn_o, _ = self.hier_rnn2(context)
-            rnn_o = torch.transpose(rnn_o,0,1)
-            #print("rnn_o",rnn_o.shape)
-
-            context, _ = self.att_layer2(rnn_o, rnn_o)
-            #print("context",context.shape)
-
-            hier_out[i] = context.squeeze()
-            #break
-        #print(hier_out)
-        hier_out = hier_out.unsqueeze(0).expand(sentences.size(0),-1,-1)
-
-
         sentences = nn.utils.rnn.pack_padded_sequence(sentences, sentences_len)
-        #print("se",sentences.shape)
+
         rnn_out, _ = self.rnn(sentences)
-        #print("ro",rnn_out.shape)
+
         rnn_out, _ = nn.utils.rnn.pad_packed_sequence(rnn_out)
-        #print("ro",rnn_out.shape)
 
 
         if self.dropout is not None:
             rnn_out = self.dropout(rnn_out)
-        #print("rooO",rnn_out.shape)
-        #print("dss")
-        #print(rnn_out.device, hier_out.device)
-        stacked = torch.cat((rnn_out,hier_out),dim=2)
-        #print(stacked.shape)
+
+        #iterate through batch to get hierarchical representation
+        #out_ks = torch.zeros((len(sentences_len),sentences_len.max().int(), self.n_out_ks), device='cuda')
+        context_list = []
+        #print("s",sentences.data.shape)
+        #print("r",rnn_out.data.shape)
+        #for i, s, eom, l in zip(range(len(sentences_len)), torch.transpose(sentences,0,1),torch.transpose(eoM,0,1),sentences_len):
+        for i, s, eom, l in zip(range(len(sentences_len)), torch.transpose(rnn_out,0,1),torch.transpose(eoM,0,1),sentences_len):
+            nz = torch.nonzero(eom).squeeze()
+            #if i==0: print(nz)
+
+            sentences_split = torch.tensor_split(s[:l.int()], nz.clone().cpu())
+
+            if nz[0]==0:
+                lengths = torch.diff(nz.cuda(),append=torch.tensor([l]).cuda())
+            else:
+                lengths = torch.diff(nz.cuda(),prepend=torch.tensor([0]).cuda(),append=torch.tensor([l]).cuda())
+            
+            #print("l",lengths.shape)#,sentences_split.shape)
+            #print("l",lengths.shape,sentences_split.shape)
+            
+            sentences_split_pad = nn.utils.rnn.pad_sequence(sentences_split,batch_first=False)
+            packed = nn.utils.rnn.pack_padded_sequence(sentences_split_pad, lengths.cpu(),enforce_sorted=False)
+            
+            rnn_o, _ = self.hier_rnn(packed)
+
+            rnn_o, _ = nn.utils.rnn.pad_packed_sequence(rnn_o)
+
+            #print(rnn_o.shape, torch.transpose(rnn_o,0,1).shape)
+            
+            context, _ = self.att_layer1(torch.transpose(rnn_o,0,1),torch.transpose(rnn_o,0,1)) #context of all the measures
+            #print(context.shape)
+            #raise Exception('I know Python!')
+            context = context.squeeze()
+            
+            
+            context = torch.repeat_interleave(context, lengths.int(), dim=0)
+            context_list.append(context)
+
+        out_context = nn.utils.rnn.pad_sequence(context_list,batch_first=True) #padding value?
+        
+        
+        stacked = torch.cat((rnn_out,torch.transpose(out_context,0,1)),dim=2)
         out_pitch = self.top_layer_pitch(stacked)
-        #out_pitch = self.top_layer_pitch(rnn_out)
 
 
+        #2nd rnn not neccecary
         # pass the ks information into the second rnn
-        rnn_out = nn.utils.rnn.pack_padded_sequence(rnn_out, sentences_len)
-        rnn_out, _ = self.rnn2(rnn_out)
-        rnn_out, _ = nn.utils.rnn.pad_packed_sequence(rnn_out)
+        #rnn_out = nn.utils.rnn.pack_padded_sequence(rnn_out, sentences_len)
+        #rnn_out, _ = self.rnn2(rnn_out)
+        #rnn_out, _ = nn.utils.rnn.pad_packed_sequence(rnn_out)
 
-        if self.dropout2 is not None:
-            rnn_out = self.dropout2(rnn_out)
-
-        #print("sda",rnn_out.shape)
-        stacked = torch.cat((rnn_out,hier_out),dim=2)
-        out_ks = self.top_layer_ks(stacked)
-        #out_ks = self.top_layer_ks(rnn_out)
-
+        #if self.dropout2 is not None:
+        #    rnn_out = self.dropout2(rnn_out)
+    
+        out_ks = self.top_layer_ks(out_context)
+        #print(out_ks.shape,out_ks[0])
+        #raise Exception('I know Python!')
         return out_pitch, out_ks
 
     def forward(self, sentences, pitches, keysignatures, sentences_len, eoM):

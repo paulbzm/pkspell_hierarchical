@@ -5,7 +5,7 @@ The original repository can be found here: https://github.com/fosfrancesco/pkspe
 
 The usage is working exactly as in the original one, the desired approach to test can be selected in src/models/train.py in line 168.
 
-A describtion and depiction of the different approaches as well as the results can be seen in Technical_Report.pdf
+A describtion and depiction of the different approaches as well as the results can be seen in the [Technical Report](Technical_Report.pdf)
 
 
 ## License

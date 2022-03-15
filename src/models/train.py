@@ -11,6 +11,9 @@ from sklearn.metrics import accuracy_score
 from pathlib import Path
 import sys
 
+
+from tqdm import tqdm
+
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.utils.utils import keep_best_transpositions
 from src.data.pytorch_datasets import (
@@ -23,6 +26,7 @@ from src.data.pytorch_datasets import (
     transform_pc,
     transform_tpc,
     transform_key,
+    transform_eoM,
 )
 
 # For reproducibility
@@ -54,27 +58,32 @@ def training_loop(
     model = model.to(device)
 
     history = defaultdict(list)
-    for i_epoch in range(1, epochs + 1):
+
+    for i_epoch in tqdm(range(1, epochs + 1),desc="Training progress"):
         loss_sum = 0
         accuracy_pitch_sum = 0
         accuracy_ks_sum = 0
         model.train()
-        for idx, (seqs, pitches, keysignatures, lens,) in enumerate(
+
+        #seqs,          pitches, keysignatures,     lens,
+        #midi_number,   pitches, key_signatures,    len(pitches)
+        for idx, (seqs, pitches, keysignatures, lens, eoM) in enumerate(
             train_dataloader
         ):  # seqs, pitches, keysignatures, lens are batches
-            seqs, pitches, keysignatures = (
+            seqs, pitches, keysignatures, eoM = (
                 seqs.to(device),
                 pitches.to(device),
                 keysignatures.to(device),
+                eoM.to(device)
             )
             optimizer.zero_grad()
-            loss = model(seqs, pitches, keysignatures, lens)
+            loss = model(seqs, pitches, keysignatures, lens, eoM)
             loss.backward()
             optimizer.step()
             loss_sum += loss.item()
 
             with torch.no_grad():
-                predicted_pitch, predicted_ks = model.predict(seqs, lens)
+                predicted_pitch, predicted_ks = model.predict(seqs, lens, eoM)
                 for i, (p, k) in enumerate(zip(predicted_pitch, predicted_ks)):
                     # compute the accuracy without considering the padding
                     acc_pitch = accuracy_score(p, pitches[:, i][: len(p)].cpu())
@@ -102,9 +111,9 @@ def training_loop(
             accuracy_pitch_sum = 0
             accuracy_ks_sum = 0
             with torch.no_grad():
-                for seqs, pitches, keysignatures, lens in val_dataloader:
+                for seqs, pitches, keysignatures, lens, eoM in val_dataloader:
                     # Predict the model's output on a batch
-                    predicted_pitch, predicted_ks = model.predict(seqs.to(device), lens)
+                    predicted_pitch, predicted_ks = model.predict(seqs.to(device), lens, eoM)
                     # Update the lists that will be used to compute the accuracy
                     for i, (p, k) in enumerate(zip(predicted_pitch, predicted_ks)):
                         # compute the accuracy without considering the padding
@@ -154,36 +163,19 @@ def train_pkspell(
     train_dataloader,
     val_dataloader=None,
 ):
-    from models import PKSpell, PKSpell_single
+    from models import PKSpellHierarchical_app1, PKSpellHierarchical_app2, PKSpellHierarchical_app3, PKSpellHierarchical_app4, PKSpellHierarchical_app5, PKSpellHierarchical_app6, PKSpellHierarchical_app7
 
-    if model == "PKSpellsingle":
-        model = PKSpell_single(
-            len(midi_to_ix) + N_DURATION_CLASSES,
-            hidden_dim,
-            pitch_to_ix,
-            ks_to_ix,
-            rnn_depth=rnn_depth,
-            dropout=dropout,
-            cell_type=rnn_cell,
-            bidirectional=bidirectional,
-            mode=mode,
-        )
-    elif model == "PKSpell":
-        model = PKSpell(
-            len(midi_to_ix) + N_DURATION_CLASSES,
-            hidden_dim,
-            pitch_to_ix,
-            ks_to_ix,
-            rnn_depth=rnn_depth,
-            dropout=dropout,
-            dropout2=dropout2,
-            hidden_dim2=hidden_dim2,
-            cell_type=rnn_cell,
-            bidirectional=bidirectional,
-            mode=mode,
-        )
-    else:
-        raise Exception("Model must be either 'PKSpellsingle' or  'PkSpell'")
+    model = PKSpellHierarchical_app7(
+        len(midi_to_ix) + N_DURATION_CLASSES,
+        hidden_dim,
+        pitch_to_ix,
+        ks_to_ix,
+        rnn_depth=rnn_depth,
+        dropout=dropout,
+        cell_type=rnn_cell,
+        bidirectional=bidirectional,
+        mode=mode,
+    )
 
     from torch import optim
     from torch.optim import lr_scheduler
@@ -261,9 +253,10 @@ def start_experiment(
     with open(Path("./data/processed/asap_augmented.pkl"), "rb") as fid:
         full_list_of_dict_dataset = pickle.load(fid)
 
+
     paths = list(set([e["original_path"] for e in full_list_of_dict_dataset]))
     list_of_dict_dataset = keep_best_transpositions(full_list_of_dict_dataset)
-
+    print("size:",len(paths))
     # remove pieces from asap that are in Musedata
     paths = [p for p in paths if p != "Bach/Prelude/bwv_865/xml_score.musicxml"]
     # remove mozart Fantasie because of incoherent key signature

@@ -79,12 +79,10 @@ class DotProductAttention_nosum(nn.Module):
         score = torch.bmm(self.query_proj(query), self.value_proj(value).transpose(1, 2))
         attn = F.softmax(score.view(-1, input_size), dim=1).view(batch_size, -1, input_size)
         context = torch.bmm(attn, self.out_proj(value))
-        #context = torch.sum(torch.bmm(attn, value), dim=1,  keepdim=True)
-
+        
         return context, attn
 
 class PKSpellHierarchical_app1(nn.Module):
-    """Models that adds Hierarchical attention"""
 
     def __init__(
         self,
@@ -247,7 +245,6 @@ class PKSpellHierarchical_app1(nn.Module):
         )
 
 class PKSpellHierarchical_app2(nn.Module):
-    """Models that adds Hierarchical attention"""
 
     def __init__(
         self,
@@ -409,7 +406,6 @@ class PKSpellHierarchical_app2(nn.Module):
         )
 
 class PKSpellHierarchical_app3(nn.Module):
-    """Models that adds Hierarchical attention"""
 
     def __init__(
         self,
@@ -560,7 +556,6 @@ class PKSpellHierarchical_app3(nn.Module):
         )
 
 class PKSpellHierarchical_app4(nn.Module):
-    """Models that adds Hierarchical attention"""
 
     def __init__(
         self,
@@ -634,7 +629,6 @@ class PKSpellHierarchical_app4(nn.Module):
         self.mode = mode
 
     def compute_outputs(self, sentences, sentences_len, eoM):
-
 
         sentences = nn.utils.rnn.pack_padded_sequence(sentences, sentences_len)
         rnn_out, _ = self.rnn(sentences)
@@ -714,7 +708,6 @@ class PKSpellHierarchical_app4(nn.Module):
         )
 
 class PKSpellHierarchical_app5(nn.Module):
-    """Models that only has one RNN and uses last element of every measure for KS prediction"""
 
     def __init__(
         self,
@@ -848,7 +841,6 @@ class PKSpellHierarchical_app5(nn.Module):
         )
 
 class PKSpellHierarchical_app6(nn.Module):
-    """Models that adds Hierarchical attention"""
 
     def __init__(
         self,
@@ -999,7 +991,6 @@ class PKSpellHierarchical_app6(nn.Module):
         )
 
 class PKSpellHierarchical_app7(nn.Module):
-    """Models that adds Hierarchical attention"""
 
     def __init__(
         self,

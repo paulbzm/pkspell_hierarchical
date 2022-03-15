@@ -257,9 +257,6 @@ def main(raw_folder, processed_folder, process_asap, process_musedata):
         asap_list_of_dict = []
         length=5
         for i, path in enumerate(tqdm(xml_score_paths)):
-        #for i, path in enumerate(tqdm(xml_score_paths, total=length)):
-            #if i == length: break #only test with fewer examples
-
             tqdm.write(f"About to process {path}")
             score = m21.converter.parse(Path(asap_basepath, path))
             # generate the transpositions for the piece. This takes a lot of time unfortunately.
@@ -276,8 +273,6 @@ def main(raw_folder, processed_folder, process_asap, process_musedata):
             asap_list_of_dict.extend(
                 [
                     {
-                        # "onset": score2onsets(s),
-                        #"test": test_score(s),
                         "endOfMeasures": endOfMeasureBin(s),
                         "duration": score2durations(s),
                         "pitches": score2tpc(s),

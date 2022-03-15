@@ -290,7 +290,7 @@ class PKSpellHierarchical_app2(nn.Module):
 
         self.hier_hidden = 256
         self.hier_rnn = rnn_cell(
-            input_size=input_dim,#input_dim hidden_dim
+            input_size=input_dim,
             hidden_size=self.hier_hidden//2,
             bidirectional=True,
             num_layers=1,
@@ -451,7 +451,7 @@ class PKSpellHierarchical_app3(nn.Module):
         self.hier_hidden = 256
         self.hier_rnn = rnn_cell(
             input_size=hidden_dim,
-            hidden_size=self.hier_hidden,#//2,
+            hidden_size=self.hier_hidden,
             bidirectional=False,
             num_layers=1,
         )
@@ -600,8 +600,8 @@ class PKSpellHierarchical_app4(nn.Module):
 
         self.hier_hidden = 256
         self.hier_rnn = rnn_cell(
-            input_size=hidden_dim,#input_dim hidden_dim
-            hidden_size=self.hier_hidden,#//2,
+            input_size=hidden_dim,
+            hidden_size=self.hier_hidden,
             bidirectional=False,
             num_layers=1,
         )
